@@ -9,8 +9,12 @@
     "tabs",
     "history",
     "contextualIdentities",
-    "cookies"
+    "cookies",
+    "alarms"
   ],
+  "host_permissions": ["https://api.notion.com/*"],
+  "optional_permissions": ["scripting"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
   "action": {
     "default_popup": "popup.html",
     "default_title": "Tab Manager v2",

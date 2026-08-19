@@ -13,6 +13,8 @@ import HiddenWindowStore from 'stores/HiddenWindowStore'
 import FocusStore from 'stores/FocusStore'
 import TabGroupStore from './TabGroupStore'
 import ContainerStore from './ContainerStore'
+import NotionStore from './NotionStore'
+import StaleTabsStore from './StaleTabsStore'
 
 import Tab from './Tab'
 import TabGroupRow from './TabGroupRow'
@@ -44,6 +46,10 @@ export default class Store {
 
   containerStore
 
+  notionStore: NotionStore
+
+  staleTabsStore: StaleTabsStore
+
   constructor() {
     makeAutoObservable(this)
 
@@ -57,6 +63,8 @@ export default class Store {
     this.searchStore = new SearchStore(this)
     this.hiddenWindowStore = new HiddenWindowStore(this)
     this.focusStore = new FocusStore(this)
+    this.notionStore = new NotionStore(this)
+    this.staleTabsStore = new StaleTabsStore(this)
     if (
       process.env.TARGET_BROWSER === 'firefox' ||
       process.env.TARGET_BROWSER === 'chrome'

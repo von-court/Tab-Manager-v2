@@ -10,6 +10,7 @@ import GroupAndSort from 'components/Toolbar/GroupAndSort'
 import Settings from 'components/Toolbar/Settings'
 import Help from 'components/Toolbar/Help'
 import RemoveDuplicated from 'components/Toolbar/RemoveDuplicated'
+import ArchiveStale from 'components/Toolbar/ArchiveStale'
 import VerticalDivider from 'components/Toolbar/VerticalDivider'
 import { useStore } from 'components/hooks/useStore'
 import useReduceMotion from 'libs/useReduceMotion'
@@ -44,6 +45,7 @@ export default observer(() => {
         <VerticalDivider />
         <Reload />
         <RemoveDuplicated />
+        <ArchiveStale />
         <Close />
         <VerticalDivider />
       </div>

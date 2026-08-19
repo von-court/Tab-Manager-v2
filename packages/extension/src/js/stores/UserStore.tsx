@@ -1,4 +1,4 @@
-import { action, observable, computed, makeObservable } from 'mobx'
+import { action, observable, computed, makeObservable, toJS } from 'mobx'
 import { browser } from 'libs'
 import {
   DEFAULT_ACTION_TAB_COUNT_MODE,
@@ -21,6 +21,15 @@ import {
 export const UI_PRESETS = ['modern', 'classic'] as const
 export type UiPreset = (typeof UI_PRESETS)[number]
 
+/** How much of an archived page is captured (spec: page-content-capture).
+ * `bookmark` = link only (default, no page access needed). */
+export const CONTENT_DEPTHS = ['bookmark', 'rich'] as const
+export type ContentDepth = (typeof CONTENT_DEPTHS)[number]
+
+// GUARD: everything in DEFAULT_SETTINGS is auto-persisted to storage.SYNC via
+// save(). NEVER add the Notion token, archive target, or journal here — those
+// are secrets/local-only and live in libs/notion/storage.ts (storage.local).
+// Spec: openspec/changes/notion-tab-archive/specs/archive-settings/spec.md
 const DEFAULT_SETTINGS = {
   showAppWindow: false,
   showShortcutHint: true,
@@ -46,6 +55,16 @@ const DEFAULT_SETTINGS = {
   fontSize: 14,
   actionTabCountMode: DEFAULT_ACTION_TAB_COUNT_MODE as ActionTabCountMode,
   windowOrder: DEFAULT_WINDOW_ORDER as WindowOrder,
+  // Notion tab archive — sync-safe preferences only (see GUARD above)
+  staleThresholdHours: 3,
+  autoArchiveEnabled: false,
+  autoArchiveMaxPerRun: 5,
+  excludePinnedTabs: true,
+  excludeGroupedTabs: true,
+  contentDepth: 'bookmark' as ContentDepth,
+  // Newline-separated hostnames; parsed by parseExcludedDomains at use time.
+  excludedDomains: '',
+  extractSuspendedTabUrl: true,
 }
 
 const LEGACY_SETTINGS = ['groupByDomain'] as const
@@ -119,6 +138,22 @@ export default class UserStore {
       fontSize: observable,
       actionTabCountMode: observable,
       windowOrder: observable,
+      staleThresholdHours: observable,
+      autoArchiveEnabled: observable,
+      autoArchiveMaxPerRun: observable,
+      excludePinnedTabs: observable,
+      excludeGroupedTabs: observable,
+      contentDepth: observable,
+      excludedDomains: observable,
+      extractSuspendedTabUrl: observable,
+      updateStaleThresholdHours: action,
+      toggleAutoArchiveEnabled: action,
+      updateAutoArchiveMaxPerRun: action,
+      toggleExcludePinnedTabs: action,
+      toggleExcludeGroupedTabs: action,
+      selectContentDepth: action,
+      updateExcludedDomains: action,
+      toggleExtractSuspendedTabUrl: action,
       theme: computed,
       selectTheme: action,
       selectUiPreset: action,
@@ -271,6 +306,14 @@ export default class UserStore {
   showTabIcon = true
   actionTabCountMode: ActionTabCountMode = DEFAULT_ACTION_TAB_COUNT_MODE
   windowOrder: WindowOrder = DEFAULT_WINDOW_ORDER
+  staleThresholdHours = 3
+  autoArchiveEnabled = false
+  autoArchiveMaxPerRun = 5
+  excludePinnedTabs = true
+  excludeGroupedTabs = true
+  contentDepth: ContentDepth = 'bookmark'
+  excludedDomains = ''
+  extractSuspendedTabUrl = true
   dialogOpen = false
   dialogFocusTarget: HTMLElement | null = null
   toolbarVisible = true
@@ -348,10 +391,15 @@ export default class UserStore {
   }
 
   save = () => {
+    // toJS(): chrome.storage structured-clones a MobX observable array into a
+    // numeric-keyed object, so a list-valued setting would come back unusable.
+    // Spec: archive-settings — list-valued settings persist as plain data.
     this.writeSettings(
       Object.assign(
         {},
-        ...Object.keys(DEFAULT_SETTINGS).map((key) => ({ [key]: this[key] })),
+        ...Object.keys(DEFAULT_SETTINGS).map((key) => ({
+          [key]: toJS(this[key]),
+        })),
       ),
     )
   }
@@ -469,6 +517,46 @@ export default class UserStore {
 
   toggleShowTabIcon = () => {
     this.showTabIcon = !this.showTabIcon
+    this.save()
+  }
+
+  updateStaleThresholdHours = (staleThresholdHours: number) => {
+    this.staleThresholdHours = staleThresholdHours
+    this.save()
+  }
+
+  toggleAutoArchiveEnabled = () => {
+    this.autoArchiveEnabled = !this.autoArchiveEnabled
+    this.save()
+  }
+
+  updateAutoArchiveMaxPerRun = (autoArchiveMaxPerRun: number) => {
+    this.autoArchiveMaxPerRun = autoArchiveMaxPerRun
+    this.save()
+  }
+
+  toggleExcludePinnedTabs = () => {
+    this.excludePinnedTabs = !this.excludePinnedTabs
+    this.save()
+  }
+
+  toggleExcludeGroupedTabs = () => {
+    this.excludeGroupedTabs = !this.excludeGroupedTabs
+    this.save()
+  }
+
+  selectContentDepth = (contentDepth: ContentDepth) => {
+    this.contentDepth = contentDepth
+    this.save()
+  }
+
+  updateExcludedDomains = (excludedDomains: string) => {
+    this.excludedDomains = excludedDomains
+    this.save()
+  }
+
+  toggleExtractSuspendedTabUrl = () => {
+    this.extractSuspendedTabUrl = !this.extractSuspendedTabUrl
     this.save()
   }
 

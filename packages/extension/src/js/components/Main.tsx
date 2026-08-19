@@ -6,6 +6,7 @@ import WinList from 'components/WinList'
 import Shortcut from 'components/Shortcut'
 import Toolbar from 'components/Toolbar'
 import SettingsDialog from 'components/Toolbar/SettingsDialog'
+import StaleTabsReviewDialog from 'components/StaleTabs/ReviewDialog'
 import { useStore, useFontSize } from './hooks/useStore'
 import DragLayer from './DragLayer'
 import { useTextClasses } from './hooks/useTheme'
@@ -70,6 +71,7 @@ export default observer(() => {
       )}
       <Shortcut />
       <SettingsDialog />
+      <StaleTabsReviewDialog />
     </main>
   )
 })

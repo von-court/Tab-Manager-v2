@@ -23,6 +23,10 @@ import {
 import useReduceMotion from 'libs/useReduceMotion'
 import { getUiColorTokens } from 'libs/uiColorTokens'
 import { defaultTransitionDuration } from 'libs/transition'
+import TextField from 'components/ui/TextField'
+import { useCombobox } from 'components/ui/Combobox'
+import type { FixedProperty, TargetProperty } from 'libs/notion/types'
+import type { ContentDepth } from 'stores/UserStore'
 import SponsorButton from './SponsorButton'
 import FeedbackButton from './FeedbackButton'
 import TabRowPreview from './TabRowPreview'
@@ -494,6 +498,698 @@ const SettingsSwitchOption = ({
     </div>
   )
 }
+
+/* -------------------------------------------------------------------------- */
+/*  Notion tab archive panel                                                   */
+/* -------------------------------------------------------------------------- */
+
+const inlineButtonStyle: React.CSSProperties = {
+  border: '1px solid var(--input-border, rgba(0,0,0,0.23))',
+  borderRadius: 6,
+  padding: '6px 14px',
+  fontSize: '0.85rem',
+  fontWeight: 600,
+  background: 'transparent',
+  color: 'inherit',
+  cursor: 'pointer',
+  flexShrink: 0,
+}
+
+const selectControlStyle: React.CSSProperties = {
+  border: '1px solid var(--input-border, rgba(0,0,0,0.23))',
+  borderRadius: 6,
+  padding: '5px 8px',
+  fontSize: '0.8rem',
+  background: 'transparent',
+  color: 'inherit',
+  maxWidth: '100%',
+}
+
+/** Default value for a newly added fixed-property row, per property type. */
+const defaultFixedValue = (
+  property: TargetProperty,
+): FixedProperty['value'] => {
+  switch (property.type) {
+    case 'checkbox':
+      return true
+    case 'number':
+      return 0
+    case 'multi_select':
+      return []
+    default:
+      return ''
+  }
+}
+
+/**
+ * Editor for static property values applied to every archived page.
+ * Property names come from the resolved target's real schema. For select and
+ * multi_select the user may also type a value that does not exist yet — Notion
+ * creates the option on write (status cannot, so it stays options-only).
+ * Spec: openspec/specs/archive-settings/spec.md
+ */
+const FixedPropertiesEditor = observer(
+  ({ rowStyle }: { rowStyle: React.CSSProperties }) => {
+    const { notionStore } = useStore()
+    const { editableProperties, fixedProperties } = notionStore
+
+    const schemaFor = (name: string) =>
+      editableProperties.find((property) => property.name === name)
+
+    const commit = (rows: FixedProperty[]) => {
+      void notionStore.setFixedProperties(rows)
+    }
+
+    const updateRow = (index: number, patch: Partial<FixedProperty>) => {
+      const rows = fixedProperties.map((row, i) =>
+        i === index ? { ...row, ...patch } : row,
+      )
+      commit(rows)
+    }
+
+    const removeRow = (index: number) => {
+      commit(fixedProperties.filter((_, i) => i !== index))
+    }
+
+    const addRow = () => {
+      const unused = editableProperties.find(
+        (property) =>
+          !fixedProperties.some((row) => row.name === property.name),
+      )
+      if (!unused) {
+        return
+      }
+      commit([
+        ...fixedProperties,
+        {
+          name: unused.name,
+          type: unused.type as FixedProperty['type'],
+          value: defaultFixedValue(unused),
+        },
+      ])
+    }
+
+    const renderValueControl = (row: FixedProperty, index: number) => {
+      const schema = schemaFor(row.name)
+      const options = schema?.options || []
+      if (row.type === 'checkbox') {
+        return (
+          <input
+            type="checkbox"
+            checked={Boolean(row.value)}
+            aria-label={`Value for ${row.name}`}
+            onChange={(event) =>
+              updateRow(index, { value: event.target.checked })
+            }
+          />
+        )
+      }
+      if (row.type === 'number') {
+        return (
+          <input
+            type="number"
+            value={String(row.value ?? '')}
+            aria-label={`Value for ${row.name}`}
+            style={{ ...selectControlStyle, width: 110 }}
+            onChange={(event) =>
+              updateRow(index, { value: Number(event.target.value) })
+            }
+          />
+        )
+      }
+      if (row.type === 'status') {
+        // Notion cannot create status options on write — existing only.
+        return (
+          <select
+            value={String(row.value ?? '')}
+            aria-label={`Value for ${row.name}`}
+            style={selectControlStyle}
+            onChange={(event) =>
+              updateRow(index, { value: event.target.value })
+            }
+          >
+            <option value="">— pick —</option>
+            {options.map((option) => (
+              <option key={option.name} value={option.name}>
+                {option.name}
+              </option>
+            ))}
+          </select>
+        )
+      }
+      if (row.type === 'select' || row.type === 'multi_select') {
+        // Free text + datalist of existing options: a value that does not exist
+        // yet is created by Notion on write. multi_select takes a comma list.
+        const listId = `notion-fixed-options-${index}`
+        const text = Array.isArray(row.value)
+          ? row.value.join(', ')
+          : String(row.value ?? '')
+        return (
+          <>
+            <input
+              type="text"
+              value={text}
+              list={listId}
+              aria-label={`Value for ${row.name}`}
+              placeholder={
+                row.type === 'multi_select' ? 'value, another value' : 'value'
+              }
+              style={{ ...selectControlStyle, minWidth: 140 }}
+              onChange={(event) =>
+                updateRow(index, {
+                  value:
+                    row.type === 'multi_select'
+                      ? event.target.value
+                          .split(',')
+                          .map((part) => part.trim())
+                          .filter(Boolean)
+                      : event.target.value,
+                })
+              }
+            />
+            <datalist id={listId}>
+              {options.map((option) => (
+                <option key={option.name} value={option.name} />
+              ))}
+            </datalist>
+          </>
+        )
+      }
+      return (
+        <input
+          type="text"
+          value={String(row.value ?? '')}
+          aria-label={`Value for ${row.name}`}
+          style={{ ...selectControlStyle, minWidth: 140 }}
+          onChange={(event) => updateRow(index, { value: event.target.value })}
+        />
+      )
+    }
+
+    const canAdd = editableProperties.some(
+      (property) => !fixedProperties.some((row) => row.name === property.name),
+    )
+
+    return (
+      <div className="rounded-lg border px-3 py-3" style={rowStyle}>
+        <h5 style={controlTitleStyle}>Fixed properties</h5>
+        <p style={controlDescriptionStyle}>
+          Values set on every archived page, on top of title and URL. A select
+          or tag value that does not exist yet is created in Notion on the first
+          archive.
+        </p>
+        {editableProperties.length === 0 && (
+          <p style={{ ...controlDescriptionStyle, marginTop: 8 }}>
+            This database has no properties of a supported type (select, status,
+            tags, checkbox, number, text).
+          </p>
+        )}
+        <div className="mt-3 space-y-2">
+          {fixedProperties.map((row, index) => (
+            <div
+              key={`${row.name}-${index}`}
+              className="flex flex-wrap items-center gap-2"
+              data-testid="notion-fixed-property-row"
+            >
+              <select
+                value={row.name}
+                aria-label="Fixed property name"
+                style={selectControlStyle}
+                onChange={(event) => {
+                  const next = schemaFor(event.target.value)
+                  if (!next) {
+                    return
+                  }
+                  updateRow(index, {
+                    name: next.name,
+                    type: next.type as FixedProperty['type'],
+                    value: defaultFixedValue(next),
+                  })
+                }}
+              >
+                {editableProperties.map((property) => (
+                  <option key={property.name} value={property.name}>
+                    {property.name} ({property.type})
+                  </option>
+                ))}
+              </select>
+              {renderValueControl(row, index)}
+              <button
+                type="button"
+                onClick={() => removeRow(index)}
+                aria-label={`Remove fixed property ${row.name}`}
+                style={{ ...inlineButtonStyle, padding: '4px 10px' }}
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+        {canAdd && (
+          <button
+            type="button"
+            onClick={addRow}
+            className="mt-3"
+            style={inlineButtonStyle}
+            data-testid="notion-add-fixed-property"
+          >
+            Add property
+          </button>
+        )}
+      </div>
+    )
+  },
+)
+
+/** Host access needed to read page content out of the archived tab. */
+const CONTENT_CAPTURE_PERMISSIONS = {
+  permissions: ['scripting'],
+  origins: ['http://*/*', 'https://*/*'],
+}
+
+/**
+ * "How much of the page to keep" control. Switching to rich capture asks for
+ * the optional scripting + host permission from inside the click handler (a
+ * user gesture is required); declining reverts to bookmark-only.
+ * Spec: openspec/specs/page-content-capture/spec.md
+ */
+const ContentDepthControl = observer(
+  ({ rowStyle }: { rowStyle: React.CSSProperties }) => {
+    const { userStore } = useStore()
+    const [permissionError, setPermissionError] = React.useState<string | null>(
+      null,
+    )
+
+    const choose = async (next: ContentDepth) => {
+      setPermissionError(null)
+      if (next === userStore.contentDepth) {
+        return
+      }
+      if (next === 'bookmark') {
+        userStore.selectContentDepth('bookmark')
+        return
+      }
+      try {
+        const granted = await browser.permissions.request(
+          CONTENT_CAPTURE_PERMISSIONS,
+        )
+        if (!granted) {
+          setPermissionError(
+            'Page access was declined — keeping link-only archiving.',
+          )
+          return
+        }
+        userStore.selectContentDepth('rich')
+      } catch (e) {
+        setPermissionError(
+          e instanceof Error ? e.message : 'Could not request page access.',
+        )
+      }
+    }
+
+    return (
+      <div
+        className="rounded-lg border px-3 py-3"
+        style={rowStyle}
+        data-testid="notion-content-depth-control"
+      >
+        <h5 style={controlTitleStyle}>Page content</h5>
+        <p style={controlDescriptionStyle}>
+          Keeping the page text needs permission to read the pages you archive.
+          Link-only never reads page content.
+        </p>
+        <div className="mt-3">
+          <ToggleGroup
+            value={userStore.contentDepth}
+            onChange={(next) => void choose(next as ContentDepth)}
+            aria-label="Page content depth"
+          >
+            <ToggleButton value="bookmark">Link only</ToggleButton>
+            <ToggleButton value="rich">Link + page content</ToggleButton>
+          </ToggleGroup>
+        </div>
+        {permissionError && (
+          <p
+            style={{
+              ...controlDescriptionStyle,
+              marginTop: 8,
+              color: '#e5484d',
+              opacity: 1,
+            }}
+          >
+            {permissionError}
+          </p>
+        )}
+      </div>
+    )
+  },
+)
+
+const NotionArchivePanel = observer(
+  ({
+    panelStyle,
+    rowStyle,
+  }: {
+    panelStyle: React.CSSProperties
+    rowStyle: React.CSSProperties
+  }) => {
+    const { notionStore, userStore } = useStore()
+    const {
+      connection,
+      target,
+      verifying,
+      verifyError,
+      searchResults,
+      searching,
+      searchError,
+      mappingHint,
+      isConfigured,
+    } = notionStore
+    const {
+      staleThresholdHours,
+      updateStaleThresholdHours,
+      autoArchiveEnabled,
+      toggleAutoArchiveEnabled,
+      autoArchiveMaxPerRun,
+      updateAutoArchiveMaxPerRun,
+      excludePinnedTabs,
+      toggleExcludePinnedTabs,
+      excludeGroupedTabs,
+      toggleExcludeGroupedTabs,
+      excludedDomains,
+      updateExcludedDomains,
+      extractSuspendedTabUrl,
+      toggleExtractSuspendedTabUrl,
+    } = userStore
+    const [tokenDraft, setTokenDraft] = React.useState('')
+    const [pickerInput, setPickerInput] = React.useState(target?.title || '')
+    const [pickerOpen, setPickerOpen] = React.useState(false)
+
+    // Debounced database search while the picker is open.
+    React.useEffect(() => {
+      if (!pickerOpen || !connection) {
+        return undefined
+      }
+      const handle = setTimeout(() => {
+        void notionStore.searchDatabases(pickerInput)
+      }, 300)
+      return () => clearTimeout(handle)
+    }, [pickerOpen, pickerInput, connection, notionStore])
+
+    React.useEffect(() => {
+      setPickerInput(target?.title || '')
+    }, [target?.title])
+
+    const items = searchResults.slice()
+    const {
+      getRootProps,
+      getInputProps,
+      getListboxProps,
+      getItemProps,
+      highlightedIndex,
+    } = useCombobox<(typeof items)[number]>({
+      items,
+      inputValue: pickerInput,
+      onInputValueChange: setPickerInput,
+      onSelect: (item) => {
+        setPickerOpen(false)
+        setPickerInput(item.title)
+        void notionStore.selectTarget(item.dataSourceId)
+      },
+      isOpen: pickerOpen,
+      onOpenChange: setPickerOpen,
+    })
+
+    const comboboxInputProps = getInputProps()
+
+    const handleVerify = async () => {
+      const verified = await notionStore.verifyToken(tokenDraft.trim())
+      if (verified) {
+        setTokenDraft('')
+      }
+    }
+
+    return (
+      <SettingsPanel
+        testId="settings-panel-notion-archive"
+        title="Notion tab archive"
+        description="Archive stale tabs as pages in a Notion database, then close them."
+        style={panelStyle}
+        className="xl:order-5 xl:col-span-3"
+      >
+        <div className="space-y-3">
+          <div className="rounded-lg border px-3 py-3" style={rowStyle}>
+            <h5 style={controlTitleStyle}>Notion connection</h5>
+            <p style={controlDescriptionStyle}>
+              Paste an internal-integration token. It is stored on this device
+              only and used exclusively by the background worker.
+            </p>
+            <div className="mt-3 flex items-center gap-2">
+              <TextField
+                value={tokenDraft}
+                onChange={setTokenDraft}
+                password
+                placeholder={
+                  connection ? 'Token saved — paste to replace' : 'ntn_…'
+                }
+                autoComplete="off"
+                aria-label="Notion integration token"
+                data-testid="notion-token-field"
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    void handleVerify()
+                  }
+                }}
+              />
+              <button
+                type="button"
+                style={{ ...inlineButtonStyle, opacity: verifying ? 0.6 : 1 }}
+                disabled={verifying || (!tokenDraft.trim() && !connection)}
+                onClick={() => void handleVerify()}
+                data-testid="notion-verify-button"
+              >
+                {verifying ? 'Verifying…' : 'Verify'}
+              </button>
+            </div>
+            {connection && !verifyError && (
+              <p style={{ ...controlDescriptionStyle, marginTop: 8 }}>
+                Connected as “{connection.botName}”.
+              </p>
+            )}
+            {verifyError && (
+              <p
+                style={{
+                  ...controlDescriptionStyle,
+                  marginTop: 8,
+                  color: '#e5484d',
+                  opacity: 1,
+                }}
+              >
+                {verifyError}
+              </p>
+            )}
+            <div
+              className="mt-3"
+              ref={
+                getRootProps().ref as unknown as React.RefObject<HTMLDivElement>
+              }
+            >
+              <h5 style={controlTitleStyle}>Archive database</h5>
+              <div className="relative mt-2">
+                <TextField
+                  value={pickerInput}
+                  onChange={(nextValue) => {
+                    setPickerInput(nextValue)
+                    if (!pickerOpen) {
+                      setPickerOpen(true)
+                    }
+                  }}
+                  inputRef={comboboxInputProps.ref}
+                  inputProps={{
+                    onKeyDown: comboboxInputProps.onKeyDown,
+                    onFocus: comboboxInputProps.onFocus,
+                    onBlur: comboboxInputProps.onBlur,
+                    role: comboboxInputProps.role,
+                    'aria-activedescendant':
+                      comboboxInputProps['aria-activedescendant'],
+                    'aria-autocomplete':
+                      comboboxInputProps['aria-autocomplete'],
+                    'aria-expanded': comboboxInputProps['aria-expanded'],
+                  }}
+                  disabled={!connection}
+                  placeholder={
+                    connection
+                      ? 'Search databases shared with the integration…'
+                      : 'Verify the token first'
+                  }
+                  aria-label="Archive database"
+                  data-testid="notion-database-picker"
+                />
+                {pickerOpen && connection && (
+                  <div
+                    {...getListboxProps()}
+                    className="absolute z-10 mt-1 max-h-48 w-full overflow-auto rounded-lg border p-1"
+                    style={{
+                      ...rowStyle,
+                      backgroundColor:
+                        (rowStyle.backgroundColor as string) || 'inherit',
+                    }}
+                  >
+                    {searching && (
+                      <div className="px-2 py-1.5 text-sm opacity-70">
+                        Searching…
+                      </div>
+                    )}
+                    {!searching && items.length === 0 && (
+                      <div className="px-2 py-1.5 text-sm opacity-70">
+                        No databases found — share one with the integration.
+                      </div>
+                    )}
+                    {!searching &&
+                      items.map((item, index) => (
+                        <div
+                          key={item.dataSourceId}
+                          {...getItemProps({ index, item })}
+                          className="cursor-pointer rounded px-2 py-1.5 text-sm"
+                          style={{
+                            background:
+                              highlightedIndex === index
+                                ? 'rgba(125, 125, 125, 0.18)'
+                                : 'transparent',
+                          }}
+                        >
+                          {item.title}
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+              {target && (
+                <p style={{ ...controlDescriptionStyle, marginTop: 8 }}>
+                  {mappingHint}
+                </p>
+              )}
+              {searchError && (
+                <p
+                  style={{
+                    ...controlDescriptionStyle,
+                    marginTop: 8,
+                    color: '#e5484d',
+                    opacity: 1,
+                  }}
+                >
+                  {searchError}
+                </p>
+              )}
+            </div>
+          </div>
+          <DensityControl
+            testId="notion-stale-threshold-control"
+            title="Staleness threshold"
+            description="Tabs untouched for longer than this are proposed for archiving."
+            value={staleThresholdHours}
+            min={1}
+            max={72}
+            step={1}
+            unit="h"
+            defaultValue={3}
+            sliderAriaLabel="Update Staleness Threshold"
+            inputAriaLabel="Staleness Threshold Value"
+            decrementAriaLabel="Decrease Staleness Threshold"
+            incrementAriaLabel="Increase Staleness Threshold"
+            onChange={updateStaleThresholdHours}
+            style={rowStyle}
+          />
+          <SettingsSwitchOption
+            testId="notion-exclude-pinned-switch"
+            title="Never archive pinned tabs"
+            description="Keep pinned tabs out of the proposed list, in both manual and automatic mode."
+            checked={excludePinnedTabs}
+            onChange={toggleExcludePinnedTabs}
+            style={rowStyle}
+          />
+          <div className="rounded-lg border px-3 py-3" style={rowStyle}>
+            <h5 style={controlTitleStyle}>Excluded domains</h5>
+            <p style={controlDescriptionStyle}>
+              One per line. Tabs on these domains, and their subdomains, are
+              never archived — by any route.
+            </p>
+            <textarea
+              value={excludedDomains}
+              onChange={(event) => updateExcludedDomains(event.target.value)}
+              rows={3}
+              spellCheck={false}
+              aria-label="Excluded domains"
+              data-testid="notion-excluded-domains"
+              placeholder={'app.notion.com\nmail.google.com'}
+              className="mt-3 w-full"
+              style={{
+                border: '1px solid var(--input-border, rgba(0,0,0,0.23))',
+                borderRadius: 6,
+                padding: '6px 8px',
+                fontSize: '0.8rem',
+                fontFamily: 'inherit',
+                background: 'transparent',
+                color: 'inherit',
+                resize: 'vertical',
+              }}
+            />
+          </div>
+          <SettingsSwitchOption
+            testId="notion-extract-suspended-switch"
+            title="Tab Suspender compatibility: extract URL"
+            description="Recover the real page behind a suspended/parked tab so it can still be archived. Page content is not read from such tabs."
+            checked={extractSuspendedTabUrl}
+            onChange={toggleExtractSuspendedTabUrl}
+            style={rowStyle}
+          />
+          <SettingsSwitchOption
+            testId="notion-exclude-grouped-switch"
+            title="Never archive grouped tabs"
+            description="Keep tabs that belong to a tab group out of the proposed list, in both manual and automatic mode."
+            checked={excludeGroupedTabs}
+            onChange={toggleExcludeGroupedTabs}
+            style={rowStyle}
+          />
+          <div
+            style={
+              isConfigured ? undefined : { opacity: 0.5, pointerEvents: 'none' }
+            }
+            aria-disabled={!isConfigured}
+            className="space-y-3"
+          >
+            <FixedPropertiesEditor rowStyle={rowStyle} />
+            <ContentDepthControl rowStyle={rowStyle} />
+            <SettingsSwitchOption
+              testId="notion-auto-archive-switch"
+              title="Auto-archive stale tabs"
+              description="Archive stale tabs unattended every 30 minutes. Active, audible, and recently archived tabs are never touched, plus whatever the exclusions above cover."
+              checked={autoArchiveEnabled}
+              onChange={toggleAutoArchiveEnabled}
+              style={rowStyle}
+            />
+            <DensityControl
+              testId="notion-auto-archive-cap-control"
+              title="Max tabs per auto run"
+              value={autoArchiveMaxPerRun}
+              min={1}
+              max={25}
+              step={1}
+              defaultValue={5}
+              sliderAriaLabel="Update Auto Archive Cap"
+              inputAriaLabel="Auto Archive Cap Value"
+              decrementAriaLabel="Decrease Auto Archive Cap"
+              incrementAriaLabel="Increase Auto Archive Cap"
+              onChange={updateAutoArchiveMaxPerRun}
+              style={rowStyle}
+            />
+          </div>
+        </div>
+      </SettingsPanel>
+    )
+  },
+)
 
 /* -------------------------------------------------------------------------- */
 /*  Main SettingsDialog                                                        */
@@ -1091,6 +1787,10 @@ export default observer(() => {
               />
             </div>
           </SettingsPanel>
+          <NotionArchivePanel
+            panelStyle={panelStyle}
+            rowStyle={rowDetailOptionStyle}
+          />
         </div>
         <div
           className="mt-6 flex items-center justify-between border-t pt-4"

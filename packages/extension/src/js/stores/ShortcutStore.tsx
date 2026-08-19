@@ -357,6 +357,22 @@ export default class ShortcutStore {
       'Open selected tab(s) in a new window',
     ],
     [
+      ['shift+a'],
+      (event: Event) => {
+        preventDefault(event)
+        this.store.staleTabsStore.toggleDialog()
+      },
+      'Archive stale tabs to Notion',
+    ],
+    [
+      ['shift+ctrl+a'],
+      (event: Event) => {
+        preventDefault(event)
+        void this.store.staleTabsStore.archiveSelectedNow()
+      },
+      'Archive selected tab(s) to Notion and close them',
+    ],
+    [
       ['ctrl+i'],
       (event: Event) => {
         preventDefault(event)

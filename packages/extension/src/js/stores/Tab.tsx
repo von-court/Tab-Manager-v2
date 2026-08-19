@@ -42,6 +42,7 @@ export default class Tab extends Focusable {
       pinned: observable,
       title: observable,
       index: observable,
+      lastAccessed: observable,
       url: observable,
       windowId: observable,
       removing: observable,
@@ -106,6 +107,11 @@ export default class Tab extends Focusable {
   favIconUrl = ''
 
   index = -1
+
+  // Chromium-native last-activity timestamp (ms), hydrated from the raw
+  // `chrome.tabs.Tab` via `Object.assign(this, tab)` in the constructor.
+  // Consumed by libs/staleness.ts (spec: stale-tab-detection).
+  lastAccessed: number = undefined
 
   isHovered = false
 

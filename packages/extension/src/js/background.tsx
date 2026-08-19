@@ -1,5 +1,6 @@
 import TabHistory from 'background/TabHistory'
 import TabCountIcon from 'background/TabCountIcon'
+import NotionArchiver from 'background/NotionArchiver'
 import actions from 'libs/actions'
 import { createWindow, openInNewTab, openOrTogglePopup, browser } from 'libs'
 
@@ -29,6 +30,7 @@ init()
 const tabHistory = new TabHistory()
 // Instantiation is enough here because the constructor registers listeners.
 new TabCountIcon()
+const notionArchiver = new NotionArchiver()
 const _createWindow = (request, sender, sendResponse) => {
   createWindow(request.tabs)
   sendResponse()
@@ -40,13 +42,19 @@ const actionMap = {
   [actions.createWindow]: _createWindow,
 }
 
-Object.assign(actionMap, tabHistory.actionMap)
+Object.assign(actionMap, tabHistory.actionMap, notionArchiver.actionMap)
 
 const onMessage = (request, sender, sendResponse) => {
   const { action } = request
   const func = actionMap[action]
   if (func && typeof func === 'function') {
-    func(request, sender, sendResponse)
+    // Promise-aware dispatch: when a handler returns a Promise, return it so
+    // the webextension-polyfill wires it up as the async response. Sync
+    // handlers keep using sendResponse and are unaffected.
+    const result = func(request, sender, sendResponse) as unknown
+    if (result && typeof (result as Promise<unknown>).then === 'function') {
+      return result
+    }
   } else {
     sendResponse(`Unknown action: ${action}`)
   }
