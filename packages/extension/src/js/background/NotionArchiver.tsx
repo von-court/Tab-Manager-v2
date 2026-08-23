@@ -49,6 +49,9 @@ export const ARCHIVE_BATCH_CAP = 25
 /** chrome.alarms name + period for the unattended run (spec: auto-archive). */
 export const AUTO_ARCHIVE_ALARM = 'notion-auto-archive'
 export const AUTO_ARCHIVE_PERIOD_MINUTES = 30
+/** Delay of the first run after enabling — without it Chrome's first fire is a
+ * full period out, which reads as "the setting did nothing". */
+export const AUTO_ARCHIVE_FIRST_DELAY_MINUTES = 1
 
 const HOUR_MS = 60 * 60 * 1000
 
@@ -93,21 +96,33 @@ export default class NotionArchiver {
     void this.reconcileAlarm()
   }
 
-  /** Create or clear the periodic alarm to match `autoArchiveEnabled`. */
+  /**
+   * Create or clear the periodic alarm to match `autoArchiveEnabled`, WITHOUT
+   * moving the schedule of a healthy alarm (spec: auto-archive — a
+   * service-worker restart never postpones the next run).
+   *
+   * create() replaces any same-named alarm and restarts its countdown, and this
+   * runs on every SW start — so a live alarm with the expected period must be
+   * left alone, or ordinary browsing resets it faster than the period elapses.
+   */
   reconcileAlarm = async () => {
     if (!browser.alarms) {
       return
     }
     try {
       const { autoArchiveEnabled } = await readAutoSettings()
-      if (autoArchiveEnabled) {
-        // create() with the same name replaces the alarm — idempotent.
-        await browser.alarms.create(AUTO_ARCHIVE_ALARM, {
-          periodInMinutes: AUTO_ARCHIVE_PERIOD_MINUTES,
-        })
-      } else {
+      if (!autoArchiveEnabled) {
         await browser.alarms.clear(AUTO_ARCHIVE_ALARM)
+        return
       }
+      const existing = await browser.alarms.get(AUTO_ARCHIVE_ALARM)
+      if (existing?.periodInMinutes === AUTO_ARCHIVE_PERIOD_MINUTES) {
+        return
+      }
+      await browser.alarms.create(AUTO_ARCHIVE_ALARM, {
+        delayInMinutes: AUTO_ARCHIVE_FIRST_DELAY_MINUTES,
+        periodInMinutes: AUTO_ARCHIVE_PERIOD_MINUTES,
+      })
     } catch (e) {
       log.error('Failed to reconcile auto-archive alarm', e)
     }
