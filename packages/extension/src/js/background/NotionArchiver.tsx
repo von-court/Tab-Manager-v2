@@ -3,7 +3,7 @@
 // TabHistory). All Notion network I/O and token reads happen here — the popup
 // only exchanges non-secret messages (spec: notion-connection).
 //
-// Specs: openspec/specs/{notion-connection,tab-archiving,page-content-capture}/spec.md
+// Specs: openspec/specs/{notion-connection,tab-archiving,auto-archive,page-content-capture}/spec.md
 
 import actions from 'libs/actions'
 import log from 'libs/log'
@@ -17,7 +17,9 @@ import {
   extractPageContent,
 } from 'libs/notion/contentCapture'
 import {
+  ReconciledProperties,
   createArchivePage,
+  mergeReconciledProperties,
   reconcileFixedProperties,
   resolveTargetById,
   searchTargets,
@@ -163,7 +165,7 @@ export default class NotionArchiver {
         return
       }
       log.debug('Auto-archiving stale tabs', batch.length)
-      const fixed = await this.prepareFixedProperties(token, target)
+      const fixed = await this.prepareFixedProperties(token, target, true)
       for (const tab of batch) {
         const result = await this.archiveOneTab(
           token,
@@ -242,8 +244,13 @@ export default class NotionArchiver {
       // Re-resolving the SAME target keeps its configured fixed properties;
       // switching to a different data source resets them (design.md).
       const previous = await getArchiveTarget()
-      if (previous?.dataSourceId === dataSourceId && previous.fixedProperties) {
-        result.value.fixedProperties = previous.fixedProperties
+      if (previous?.dataSourceId === dataSourceId) {
+        if (previous.fixedProperties) {
+          result.value.fixedProperties = previous.fixedProperties
+        }
+        if (previous.autoFixedProperties) {
+          result.value.autoFixedProperties = previous.autoFixedProperties
+        }
       }
       await setArchiveTarget(result.value)
     }
@@ -269,7 +276,7 @@ export default class NotionArchiver {
       )
     }
     const { contentDepth } = await readAutoSettings()
-    const fixed = await this.prepareFixedProperties(token, target)
+    const fixed = await this.prepareFixedProperties(token, target, auto)
     const results: ArchiveResult[] = []
     for (const tab of tabs.slice(0, ARCHIVE_BATCH_CAP)) {
       results.push(
@@ -328,12 +335,21 @@ export default class NotionArchiver {
    * schema, once per archive run. Schema drift (renamed/deleted/retyped
    * property) is caught here and downgraded to per-tab warnings rather than
    * failing the page create (spec: tab-archiving).
+   *
+   * An unattended run additionally applies `autoFixedProperties`, merged over
+   * the always-on set (spec: tab-archiving — auto-archive-only properties;
+   * auto-archive — unattended runs apply the auto-archive property set). Both
+   * sets share the single schema fetch.
    */
   private prepareFixedProperties = async (
     token: string,
     target: ArchiveTarget,
-  ): Promise<{ properties: Record<string, unknown>; warnings: string[] }> => {
-    if (!target.fixedProperties || !target.fixedProperties.length) {
+    auto: boolean,
+  ): Promise<ReconciledProperties> => {
+    const autoProperties = auto ? target.autoFixedProperties : undefined
+    const configured =
+      (target.fixedProperties?.length || 0) + (autoProperties?.length || 0)
+    if (!configured) {
       return { properties: {}, warnings: [] }
     }
     const fresh = await resolveTargetById(token, target.dataSourceId)
@@ -347,9 +363,9 @@ export default class NotionArchiver {
         ],
       }
     }
-    return reconcileFixedProperties(
-      target.fixedProperties,
-      fresh.value.properties,
+    return mergeReconciledProperties(
+      reconcileFixedProperties(target.fixedProperties, fresh.value.properties),
+      reconcileFixedProperties(autoProperties, fresh.value.properties),
     )
   }
 

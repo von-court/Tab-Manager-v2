@@ -71,6 +71,13 @@ const asArray = <T>(value: unknown): T[] | undefined => {
   return undefined
 }
 
+const healFixedProperties = (value: unknown): FixedProperty[] | undefined =>
+  asArray<FixedProperty>(value)?.map((property) =>
+    property?.type === 'multi_select'
+      ? { ...property, value: asArray<string>(property.value) || [] }
+      : property,
+  )
+
 export const getArchiveTarget = async (): Promise<ArchiveTarget | null> => {
   const data = await browser.storage.local.get({ [TARGET_KEY]: null })
   const target = data[TARGET_KEY] as ArchiveTarget | null
@@ -85,12 +92,8 @@ export const getArchiveTarget = async (): Promise<ArchiveTarget | null> => {
       ...property,
       options: asArray(property?.options),
     })),
-    fixedProperties: asArray<FixedProperty>(target.fixedProperties)?.map(
-      (property) =>
-        property?.type === 'multi_select'
-          ? { ...property, value: asArray<string>(property.value) || [] }
-          : property,
-    ),
+    fixedProperties: healFixedProperties(target.fixedProperties),
+    autoFixedProperties: healFixedProperties(target.autoFixedProperties),
   }
 }
 

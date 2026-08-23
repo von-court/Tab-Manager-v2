@@ -53,10 +53,12 @@ export default class NotionStore {
       mappingHint: computed,
       editableProperties: computed,
       fixedProperties: computed,
+      autoFixedProperties: computed,
       verifyToken: action,
       searchDatabases: action,
       selectTarget: action,
       setFixedProperties: action,
+      setAutoFixedProperties: action,
       init: action,
     })
     this.store = store
@@ -116,10 +118,25 @@ export default class NotionStore {
     return Array.isArray(configured) ? configured : []
   }
 
+  /** Properties applied only on unattended runs (spec: tab-archiving —
+   * auto-archive-only properties). */
+  get autoFixedProperties(): FixedProperty[] {
+    const configured = this.target?.autoFixedProperties
+    return Array.isArray(configured) ? configured : []
+  }
+
   /** Persist the configured fixed properties onto the stored target. The
    * target is non-secret, so the popup may write storage.local directly; the
    * SW re-reads it on every archive run. */
   setFixedProperties = async (fixedProperties: FixedProperty[]) => {
+    await this.patchTarget({ fixedProperties })
+  }
+
+  setAutoFixedProperties = async (autoFixedProperties: FixedProperty[]) => {
+    await this.patchTarget({ autoFixedProperties })
+  }
+
+  private patchTarget = async (patch: Partial<ArchiveTarget>) => {
     if (!this.target) {
       return
     }
@@ -128,7 +145,7 @@ export default class NotionStore {
     // no .filter/.map when read back. Persist plain data only.
     const nextTarget: ArchiveTarget = toJS({
       ...this.target,
-      fixedProperties,
+      ...patch,
     })
     await setArchiveTarget(nextTarget)
     runInAction(() => {

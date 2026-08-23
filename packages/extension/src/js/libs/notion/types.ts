@@ -68,6 +68,10 @@ export interface ArchiveTarget {
   /** User-configured static properties set on every archived page. Absent on
    * targets configured before this feature existed (not backfilled). */
   fixedProperties?: FixedProperty[]
+  /** Static properties set ONLY on pages created by an unattended auto-archive
+   * run, merged over `fixedProperties` (spec: tab-archiving — auto-archive-only
+   * properties). Absent means none. */
+  autoFixedProperties?: FixedProperty[]
 }
 
 /** One archive-journal record, written to storage.local *before* the tab is

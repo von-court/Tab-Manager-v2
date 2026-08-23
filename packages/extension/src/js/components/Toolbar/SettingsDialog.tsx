@@ -541,46 +541,81 @@ const defaultFixedValue = (
   }
 }
 
+/** The two property editors differ only in copy, labels and where they read
+ * and write their rows; the editing model is identical.
+ * Spec: openspec/specs/archive-settings/spec.md */
+const PROPERTY_EDITOR_VARIANTS = {
+  fixed: {
+    title: 'Fixed properties',
+    description:
+      'Values set on every archived page, on top of title and URL. A select or tag value that does not exist yet is created in Notion on the first archive.',
+    nameLabel: 'Fixed property name',
+    valueLabel: (name: string) => `Value for ${name}`,
+    removeLabel: (name: string) => `Remove fixed property ${name}`,
+    rowTestId: 'notion-fixed-property-row',
+    addTestId: 'notion-add-fixed-property',
+  },
+  auto: {
+    title: 'Auto-archive properties',
+    description:
+      'Extra values set only on pages created by an automatic run — a tag like "auto-archived-tab" keeps them apart from the ones you archived yourself. Tags add to the fixed ones above; every other type overrides them.',
+    nameLabel: 'Auto-archive property name',
+    valueLabel: (name: string) => `Auto-archive value for ${name}`,
+    removeLabel: (name: string) => `Remove auto-archive property ${name}`,
+    rowTestId: 'notion-auto-property-row',
+    addTestId: 'notion-add-auto-property',
+  },
+}
+
 /**
- * Editor for static property values applied to every archived page.
+ * Editor for static property values applied to archived pages.
  * Property names come from the resolved target's real schema. For select and
  * multi_select the user may also type a value that does not exist yet — Notion
  * creates the option on write (status cannot, so it stays options-only).
  * Spec: openspec/specs/archive-settings/spec.md
  */
-const FixedPropertiesEditor = observer(
-  ({ rowStyle }: { rowStyle: React.CSSProperties }) => {
+const PropertiesEditor = observer(
+  ({
+    rowStyle,
+    variant,
+  }: {
+    rowStyle: React.CSSProperties
+    variant: keyof typeof PROPERTY_EDITOR_VARIANTS
+  }) => {
     const { notionStore } = useStore()
-    const { editableProperties, fixedProperties } = notionStore
+    const { editableProperties } = notionStore
+    const copy = PROPERTY_EDITOR_VARIANTS[variant]
+    const rows =
+      variant === 'auto'
+        ? notionStore.autoFixedProperties
+        : notionStore.fixedProperties
 
     const schemaFor = (name: string) =>
       editableProperties.find((property) => property.name === name)
 
-    const commit = (rows: FixedProperty[]) => {
-      void notionStore.setFixedProperties(rows)
+    const commit = (next: FixedProperty[]) => {
+      void (variant === 'auto'
+        ? notionStore.setAutoFixedProperties(next)
+        : notionStore.setFixedProperties(next))
     }
 
     const updateRow = (index: number, patch: Partial<FixedProperty>) => {
-      const rows = fixedProperties.map((row, i) =>
-        i === index ? { ...row, ...patch } : row,
-      )
-      commit(rows)
+      commit(rows.map((row, i) => (i === index ? { ...row, ...patch } : row)))
     }
 
     const removeRow = (index: number) => {
-      commit(fixedProperties.filter((_, i) => i !== index))
+      commit(rows.filter((_, i) => i !== index))
     }
 
     const addRow = () => {
       const unused = editableProperties.find(
-        (property) =>
-          !fixedProperties.some((row) => row.name === property.name),
+        (property) => !rows.some((row) => row.name === property.name),
       )
       if (!unused) {
         return
       }
       commit([
-        ...fixedProperties,
+        ...rows,
         {
           name: unused.name,
           type: unused.type as FixedProperty['type'],
@@ -597,7 +632,7 @@ const FixedPropertiesEditor = observer(
           <input
             type="checkbox"
             checked={Boolean(row.value)}
-            aria-label={`Value for ${row.name}`}
+            aria-label={copy.valueLabel(row.name)}
             onChange={(event) =>
               updateRow(index, { value: event.target.checked })
             }
@@ -609,7 +644,7 @@ const FixedPropertiesEditor = observer(
           <input
             type="number"
             value={String(row.value ?? '')}
-            aria-label={`Value for ${row.name}`}
+            aria-label={copy.valueLabel(row.name)}
             style={{ ...selectControlStyle, width: 110 }}
             onChange={(event) =>
               updateRow(index, { value: Number(event.target.value) })
@@ -622,7 +657,7 @@ const FixedPropertiesEditor = observer(
         return (
           <select
             value={String(row.value ?? '')}
-            aria-label={`Value for ${row.name}`}
+            aria-label={copy.valueLabel(row.name)}
             style={selectControlStyle}
             onChange={(event) =>
               updateRow(index, { value: event.target.value })
@@ -650,7 +685,7 @@ const FixedPropertiesEditor = observer(
               type="text"
               value={text}
               list={listId}
-              aria-label={`Value for ${row.name}`}
+              aria-label={copy.valueLabel(row.name)}
               placeholder={
                 row.type === 'multi_select' ? 'value, another value' : 'value'
               }
@@ -679,7 +714,7 @@ const FixedPropertiesEditor = observer(
         <input
           type="text"
           value={String(row.value ?? '')}
-          aria-label={`Value for ${row.name}`}
+          aria-label={copy.valueLabel(row.name)}
           style={{ ...selectControlStyle, minWidth: 140 }}
           onChange={(event) => updateRow(index, { value: event.target.value })}
         />
@@ -687,17 +722,13 @@ const FixedPropertiesEditor = observer(
     }
 
     const canAdd = editableProperties.some(
-      (property) => !fixedProperties.some((row) => row.name === property.name),
+      (property) => !rows.some((row) => row.name === property.name),
     )
 
     return (
       <div className="rounded-lg border px-3 py-3" style={rowStyle}>
-        <h5 style={controlTitleStyle}>Fixed properties</h5>
-        <p style={controlDescriptionStyle}>
-          Values set on every archived page, on top of title and URL. A select
-          or tag value that does not exist yet is created in Notion on the first
-          archive.
-        </p>
+        <h5 style={controlTitleStyle}>{copy.title}</h5>
+        <p style={controlDescriptionStyle}>{copy.description}</p>
         {editableProperties.length === 0 && (
           <p style={{ ...controlDescriptionStyle, marginTop: 8 }}>
             This database has no properties of a supported type (select, status,
@@ -705,15 +736,15 @@ const FixedPropertiesEditor = observer(
           </p>
         )}
         <div className="mt-3 space-y-2">
-          {fixedProperties.map((row, index) => (
+          {rows.map((row, index) => (
             <div
               key={`${row.name}-${index}`}
               className="flex flex-wrap items-center gap-2"
-              data-testid="notion-fixed-property-row"
+              data-testid={copy.rowTestId}
             >
               <select
                 value={row.name}
-                aria-label="Fixed property name"
+                aria-label={copy.nameLabel}
                 style={selectControlStyle}
                 onChange={(event) => {
                   const next = schemaFor(event.target.value)
@@ -737,7 +768,7 @@ const FixedPropertiesEditor = observer(
               <button
                 type="button"
                 onClick={() => removeRow(index)}
-                aria-label={`Remove fixed property ${row.name}`}
+                aria-label={copy.removeLabel(row.name)}
                 style={{ ...inlineButtonStyle, padding: '4px 10px' }}
               >
                 Remove
@@ -751,7 +782,7 @@ const FixedPropertiesEditor = observer(
             onClick={addRow}
             className="mt-3"
             style={inlineButtonStyle}
-            data-testid="notion-add-fixed-property"
+            data-testid={copy.addTestId}
           >
             Add property
           </button>
@@ -1159,7 +1190,7 @@ const NotionArchivePanel = observer(
             aria-disabled={!isConfigured}
             className="space-y-3"
           >
-            <FixedPropertiesEditor rowStyle={rowStyle} />
+            <PropertiesEditor rowStyle={rowStyle} variant="fixed" />
             <ContentDepthControl rowStyle={rowStyle} />
             <SettingsSwitchOption
               testId="notion-auto-archive-switch"
@@ -1184,6 +1215,7 @@ const NotionArchivePanel = observer(
               onChange={updateAutoArchiveMaxPerRun}
               style={rowStyle}
             />
+            <PropertiesEditor rowStyle={rowStyle} variant="auto" />
           </div>
         </div>
       </SettingsPanel>

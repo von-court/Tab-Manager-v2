@@ -174,6 +174,50 @@ export const reconcileFixedProperties = (
   return result
 }
 
+/** The shape both `reconcileFixedProperties` and its merge return. */
+export interface ReconciledProperties {
+  properties: Record<string, unknown>
+  warnings: string[]
+}
+
+const unionMultiSelect = (base: unknown, extra: unknown): unknown => {
+  const options = (value: unknown): { name: string }[] => {
+    const list = (value as { multi_select?: unknown })?.multi_select
+    return Array.isArray(list) ? (list as { name: string }[]) : []
+  }
+  const merged = [...options(base)]
+  const seen = new Set(merged.map((option) => option.name))
+  for (const option of options(extra)) {
+    if (!seen.has(option.name)) {
+      seen.add(option.name)
+      merged.push(option)
+    }
+  }
+  return { multi_select: merged }
+}
+
+/**
+ * Merge the auto-archive-only property set over the always-on one (spec:
+ * tab-archiving — auto-archive-only properties). `multi_select` is the only
+ * type both sets can contribute to, so its options are unioned (always-on
+ * first, deduped by name); every other type is single-valued and takes the
+ * auto value.
+ */
+export const mergeReconciledProperties = (
+  base: ReconciledProperties,
+  auto: ReconciledProperties,
+): ReconciledProperties => {
+  const properties = { ...base.properties }
+  for (const [name, encoded] of Object.entries(auto.properties)) {
+    const existing = properties[name]
+    properties[name] =
+      existing && (encoded as { multi_select?: unknown })?.multi_select
+        ? unionMultiSelect(existing, encoded)
+        : encoded
+  }
+  return { properties, warnings: [...base.warnings, ...auto.warnings] }
+}
+
 /** Verify a token via GET /v1/users/me; returns the integration/bot name. */
 export const testToken = async (
   token: string,
