@@ -12,6 +12,6 @@
 
 - [x] 2.1 `pnpm build`
 - [x] 2.2 Scoped eslint + prettier on the touched file
-- [ ] 2.3 Manual check (human): load the build, enable auto-archive, confirm via
+- [x] 2.3 Manual check (human): load the build, enable auto-archive, confirm via
       `chrome.alarms.getAll()` that `scheduledTime` does not move across service-worker restarts
       and that the first run happens ~1 minute after enabling
