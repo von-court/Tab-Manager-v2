@@ -59,6 +59,9 @@
         "linux": "Ctrl+O"
       },
       "description": "Open extension in new tab"
+    },
+    "NOTION-ARCHIVE-CURRENT-TAB": {
+      "description": "Archive the current tab to Notion and close it"
     }
   },
   "icons": {

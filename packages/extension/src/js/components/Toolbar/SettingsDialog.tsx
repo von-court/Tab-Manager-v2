@@ -515,6 +515,36 @@ const inlineButtonStyle: React.CSSProperties = {
   flexShrink: 0,
 }
 
+const SHORTCUT_PAGE_URL = 'chrome://extensions/shortcuts'
+
+/**
+ * Chrome allows only four commands with a default key and all four are spent,
+ * so the archive command arrives unbound and this panel is the only place it
+ * surfaces (spec: archive-settings — discovering the archive command). The
+ * shortcuts page cannot be reached by a link; tabs.create is the way in.
+ */
+const ArchiveShortcutHint = ({
+  rowStyle,
+}: {
+  rowStyle: React.CSSProperties
+}) => (
+  <div style={rowStyle} data-testid="notion-shortcut-hint">
+    <h5 style={controlTitleStyle}>Archive the current tab from anywhere</h5>
+    <p style={controlDescriptionStyle}>
+      The “Archive the current tab to Notion and close it” command has no key
+      assigned yet. Pick one on the browser’s shortcuts page.
+    </p>
+    <button
+      type="button"
+      style={{ ...inlineButtonStyle, marginTop: 8 }}
+      onClick={() => void browser.tabs.create({ url: SHORTCUT_PAGE_URL })}
+      data-testid="notion-open-shortcuts"
+    >
+      Open shortcuts page
+    </button>
+  </div>
+)
+
 const selectControlStyle: React.CSSProperties = {
   border: '1px solid var(--input-border, rgba(0,0,0,0.23))',
   borderRadius: 6,
@@ -1183,6 +1213,7 @@ const NotionArchivePanel = observer(
             onChange={toggleExcludeGroupedTabs}
             style={rowStyle}
           />
+          <ArchiveShortcutHint rowStyle={rowStyle} />
           <div
             style={
               isConfigured ? undefined : { opacity: 0.5, pointerEvents: 'none' }

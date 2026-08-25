@@ -2,16 +2,18 @@ import { action, computed, makeObservable, observable, runInAction } from 'mobx'
 import { browser } from 'libs'
 import actions from 'libs/actions'
 import log from 'libs/log'
-import { getStaleTabs, recentJournalUrls, resolveTab } from 'libs/staleness'
-import { isDomainExcluded, parseExcludedDomains } from 'libs/suspendedTabs'
+import {
+  archiveRefusal,
+  getStaleTabs,
+  recentJournalUrls,
+  resolveTab,
+} from 'libs/staleness'
+import { parseExcludedDomains } from 'libs/suspendedTabs'
 import { ArchiveResult, Result } from 'libs/notion/types'
 import Store from 'stores'
 import Tab from './Tab'
 
 const HOUR_MS = 60 * 60 * 1000
-
-/** Only http(s) pages can become a Notion page with a working bookmark. */
-const HTTP_SCHEME = /^https?:\/\//i
 
 /**
  * Popup-side state for the manual stale-tab review flow: the proposed stale
@@ -160,9 +162,10 @@ export default class StaleTabsStore {
     let excluded = 0
     for (const tab of chosen) {
       const { url } = resolveTab(tab, userStore.extractSuspendedTabUrl)
-      if (!HTTP_SCHEME.test(url)) {
+      const refusal = archiveRefusal(url, domains)
+      if (refusal === 'not-http') {
         notHttp += 1
-      } else if (isDomainExcluded(url, domains)) {
+      } else if (refusal) {
         excluded += 1
       } else {
         archivable.push(tab)

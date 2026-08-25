@@ -8,4 +8,6 @@ export default {
   notionSearchDatabases: 'NOTION-SEARCH-DATABASES',
   notionResolveTarget: 'NOTION-RESOLVE-TARGET',
   notionArchiveTabs: 'NOTION-ARCHIVE-TABS',
+  // Browser-level command; ships without a suggested key (spec: tab-archiving)
+  notionArchiveCurrentTab: 'NOTION-ARCHIVE-CURRENT-TAB',
 }

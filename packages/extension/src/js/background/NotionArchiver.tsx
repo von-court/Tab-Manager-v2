@@ -8,7 +8,13 @@
 import actions from 'libs/actions'
 import log from 'libs/log'
 import { browser } from 'libs'
-import { getStaleTabs, recentJournalUrls, resolveTab } from 'libs/staleness'
+import {
+  archiveRefusal,
+  getStaleTabs,
+  recentJournalUrls,
+  resolveTab,
+} from 'libs/staleness'
+import { flashActionBadge } from 'libs/actionBadge'
 import { parseExcludedDomains } from 'libs/suspendedTabs'
 import {
   CAPTURE_TIMEOUT_MS,
@@ -88,6 +94,7 @@ export default class NotionArchiver {
       [actions.notionSearchDatabases]: this.searchDatabases,
       [actions.notionResolveTarget]: this.resolveTarget,
       [actions.notionArchiveTabs]: this.archiveTabs,
+      [actions.notionArchiveCurrentTab]: this.archiveCurrentTab,
     }
     // Top-level listeners — required for MV3 SW wake-ups (spec: auto-archive).
     browser.alarms?.onAlarm.addListener(this.onAlarm)
@@ -299,6 +306,54 @@ export default class NotionArchiver {
       )
     }
     return ok(results)
+  }
+
+  /**
+   * Browser-level command: archive the active tab of the focused window with no
+   * popup open (spec: tab-archiving — browser-level archive of the active tab).
+   * Argless, so `background.tsx` can dispatch it straight from
+   * `commands.onCommand`. A manual path: `auto: false`, so the auto-archive
+   * property set never applies. The outcome reaches the user through the
+   * toolbar badge, the only surface available with no UI open.
+   */
+  archiveCurrentTab = async (): Promise<Result<ArchiveResult[]>> => {
+    const settings = await readAutoSettings()
+    const [tab] = await browser.tabs.query({
+      active: true,
+      lastFocusedWindow: true,
+    })
+    if (!tab?.id) {
+      flashActionBadge(false)
+      return err('api', 'No active tab to archive')
+    }
+    const resolved = resolveTab(tab, settings.extractSuspendedTabUrl)
+    const refusal = archiveRefusal(
+      resolved.url,
+      parseExcludedDomains(settings.excludedDomains),
+    )
+    if (refusal) {
+      log.warn('Archive command refused the active tab', refusal, tab.url)
+      flashActionBadge(false)
+      return err(
+        'api',
+        refusal === 'excluded-domain'
+          ? 'Tab is on an excluded domain'
+          : 'Only http(s) pages can be archived',
+      )
+    }
+    const result = await this.archiveTabs({
+      tabs: [
+        {
+          tabId: tab.id,
+          title: resolved.title || tab.title || '',
+          url: resolved.url,
+          recovered: resolved.recovered,
+        },
+      ],
+      auto: false,
+    })
+    flashActionBadge(Boolean(result.ok && result.value?.[0]?.ok))
+    return result
   }
 
   /**

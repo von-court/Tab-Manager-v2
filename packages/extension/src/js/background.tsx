@@ -5,6 +5,7 @@ import actions from 'libs/actions'
 import { createWindow, openInNewTab, openOrTogglePopup, browser } from 'libs'
 
 import { setBrowserIcon } from 'libs/verify'
+import { clearActionBadge } from 'libs/actionBadge'
 
 const init = async () => {
   // Edge browser has this issue: https://github.com/GoogleChrome/chrome-extensions-samples/issues/541
@@ -23,6 +24,8 @@ const init = async () => {
   }
 
   setBrowserIcon()
+  // A worker torn down mid-flash would otherwise strand an archive indicator.
+  clearActionBadge()
 }
 
 init()

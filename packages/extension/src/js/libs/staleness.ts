@@ -78,6 +78,29 @@ export const DEDUP_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
 const HTTP_SCHEME = /^https?:\/\//i
 
+/** Why a tab may never be archived, on ANY path. */
+export type ArchiveRefusal = 'not-http' | 'excluded-domain'
+
+/**
+ * The single "never archive this" rule, shared by every archive path — the
+ * review dialog, the popup shortcut, the browser-level command, and the
+ * unattended run (spec: tab-archiving — domain exclusion applies to every
+ * archive path). Takes an already-resolved URL, so a parked tab is judged as
+ * its real page. Returns null when the tab may be archived.
+ */
+export function archiveRefusal(
+  url: string | undefined,
+  excludedDomains: readonly string[] = [],
+): ArchiveRefusal | null {
+  if (!url || !HTTP_SCHEME.test(url)) {
+    return 'not-http'
+  }
+  if (isDomainExcluded(url, excludedDomains)) {
+    return 'excluded-domain'
+  }
+  return null
+}
+
 /**
  * True when the tab is idle beyond the threshold and not excluded.
  *
@@ -122,10 +145,7 @@ export function isStaleTab(
   }
   // Evaluate the RESOLVED url so a parked tab is judged as its real page.
   const { url } = resolveTab(tab, extractSuspendedTabUrl)
-  if (!url || !HTTP_SCHEME.test(url)) {
-    return false
-  }
-  if (isDomainExcluded(url, excludedDomains || [])) {
+  if (archiveRefusal(url, excludedDomains || [])) {
     return false
   }
   if (journalUrls && journalUrls.has(url)) {
